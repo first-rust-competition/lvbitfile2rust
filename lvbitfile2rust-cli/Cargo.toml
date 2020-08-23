@@ -3,9 +3,12 @@ name = "lvbitfile2rust-cli"
 version = "0.1.0"
 authors = ["Connor Worley <cworley@dropbox.com>"]
 edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+license = "MIT"
+license-file = "LICENSE.md"
+description = "Command line entrypoint for the lvbitfile2rust crate"
+readme = "README.md"
+repository = "https://github.com/first-rust-competition/lvbitfile2rust"
 
 [dependencies]
 anyhow = "1.0.32"
-lvbitfile2rust = { path = "../lvbitfile2rust" }
+lvbitfile2rust = { version = "0.1.0", path = "../lvbitfile2rust" }

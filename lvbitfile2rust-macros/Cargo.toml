@@ -3,13 +3,16 @@ name = "lvbitfile2rust-macros"
 version = "0.1.0"
 authors = ["Connor Worley <cworley@dropbox.com>"]
 edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+license = "MIT"
+license-file = "LICENSE.md"
+description = "Macro entrypoint for the lvbitfile2rust crate"
+readme = "README.md"
+repository = "https://github.com/first-rust-competition/lvbitfile2rust"
 
 [lib]
 proc-macro = true
 
 [dependencies]
-lvbitfile2rust = { path = "../lvbitfile2rust" }
+lvbitfile2rust = { version = "0.1.0", path = "../lvbitfile2rust" }
 quote = "1.0.7"
 syn = "1.0.23"

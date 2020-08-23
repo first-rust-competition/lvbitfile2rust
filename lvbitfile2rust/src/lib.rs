@@ -267,15 +267,15 @@ pub fn codegen(bitfile_path: String) -> Result<proc_macro2::TokenStream, Codegen
 
         #(#register_defs)*
 
-        pub struct Registers {
+        pub struct Peripherals {
             _marker: PhantomData<*const ()>,
             #(#register_fields),*
         }
 
-        impl Registers {
+        impl Peripherals {
             pub fn take(resource: &str) -> Result<Self, Box<dyn std::error::Error>> {
                 if unsafe{ !SESSION.is_null() } {
-                    Err("Registers already in use")?
+                    Err("Peripherals already in use")?
                 } else {
                     let session = ni_fpga::Session::open(
                         #bitfile_path,
@@ -294,7 +294,7 @@ pub fn codegen(bitfile_path: String) -> Result<proc_macro2::TokenStream, Codegen
             }
         }
 
-        impl Drop for Registers {
+        impl Drop for Peripherals {
             fn drop(&mut self) {
                 std::mem::drop(unsafe { SESSION.as_ref() }.unwrap())
             }
