@@ -8,15 +8,17 @@ mod rio {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Turn PWM on if the RSL is on!
     // My scope tells me the RSL blinks at 5Hz in teleop mode!
-    let registers = rio::Registers::take("RIO0")?;
+    let peripherals = rio::Peripherals::take("RIO0")?;
     loop {
-        let leds = registers.LEDs.read()?;
-        registers.PWM_Hdr0.write(&UnsignedFXP::<12, 12>::from_raw({
-            if leds.RSL {
-                (1 << 12) - 1
-            } else {
-                0
-            }
-        })?)?;
+        let leds = peripherals.LEDs.read()?;
+        peripherals
+            .PWM_Hdr0
+            .write(&UnsignedFXP::<12, 12>::from_raw({
+                if leds.RSL {
+                    (1 << 12) - 1
+                } else {
+                    0
+                }
+            })?)?;
     }
 }
