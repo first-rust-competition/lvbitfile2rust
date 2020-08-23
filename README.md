@@ -35,13 +35,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let peripherals = rio::Peripherals::take("RIO0")?;
     loop {
         let leds = peripherals.LEDs.read()?;
-        peripherals.PWM_Hdr0.write(&UnsignedFXP::<12, 12>::from_raw({
+        peripherals.PWM_Hdr0.write(&{
             if leds.RSL {
-                (1 << 12) - 1
+                UnsignedFXP::max_value()
             } else {
-                0
+                UnsignedFXP::min_value()
             }
-        })?)?;
+        })?;
     }
 }
 ```

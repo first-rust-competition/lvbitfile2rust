@@ -11,18 +11,20 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+      with:
+        fetch-depth: 2
     - name: Publish lvbitfile2rust
       working-directory: ./lvbitfile2rust
       env:
         CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_ACCESS_TOKEN }}
-      run: git diff --quiet HEAD~1 ./Cargo.toml || cargo publish
+      run: git diff --quiet HEAD^ ./Cargo.toml || cargo publish
     - name: Publish lvbitfile2rust-macros
       working-directory: ./lvbitfile2rust-macros
       env:
         CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_ACCESS_TOKEN }}
-      run: git diff --quiet HEAD~1 ./Cargo.toml || cargo publish
+      run: git diff --quiet HEAD^ ./Cargo.toml || cargo publish
     - name: Publish lvbitfile2rust-cli
       working-directory: ./lvbitfile2rust-cli
       env:
         CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_ACCESS_TOKEN }}
-      run: git diff --quiet HEAD~1 ./Cargo.toml || cargo publish
+      run: git diff --quiet HEAD^ ./Cargo.toml || cargo publish
