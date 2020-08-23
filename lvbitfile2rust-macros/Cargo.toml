@@ -1,9 +1,8 @@
 [package]
 name = "lvbitfile2rust-macros"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Connor Worley <cworley@dropbox.com>"]
 edition = "2018"
-license = "MIT"
 license-file = "LICENSE.md"
 description = "Macro entrypoint for the lvbitfile2rust crate"
 readme = "README.md"

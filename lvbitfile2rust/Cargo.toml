@@ -1,9 +1,8 @@
 [package]
 name = "lvbitfile2rust"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Connor Worley <cworley@dropbox.com>"]
 edition = "2018"
-license = "MIT"
 license-file = "LICENSE.md"
 description = "Generate Rust register maps (`struct`s) from lvbitx files - in the spirit of svd2rust"
 readme = "README.md"
