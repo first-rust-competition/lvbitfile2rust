@@ -10,11 +10,12 @@ pub fn lvbitfile2rust(item: TokenStream) -> TokenStream {
         Ok(tokens) => tokens,
         Err(e) => {
             let err_string = e.to_string();
-            quote!{
+            quote! {
                 compile_error!(
                     #err_string
                 );
             }
-        },
-    }.into()
+        }
+    }
+    .into()
 }

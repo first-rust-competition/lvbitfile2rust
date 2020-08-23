@@ -10,8 +10,10 @@ pub enum CodegenError {
     BitfileParse(String, roxmltree::Error),
     #[error("<{0}> node has no <{1}> child")]
     MissingChild(String, String),
-    #[error("Node has no text")]
-    NoText,
+    #[error("<{0}> node has no children")]
+    NoChildren(String),
+    #[error("<{0}> node has no text")]
+    NoText(String),
     #[error("Unknown bitfile type: {0}")]
     UnknownBitfileType(String),
 }
@@ -54,88 +56,80 @@ fn sanitize_ident(ident: &str) -> String {
     ident.replace(".", "_").replace(" ", "_")
 }
 
-fn first_child_by_tag<'a, 'b>(node: &'a roxmltree::Node<'b, 'b>, child_tag: &'a str) -> Result<roxmltree::Node<'b, 'b>, CodegenError> {
-    Ok(
-        node.children().filter(
-            |child| child.tag_name().name() == child_tag
-        ).next().ok_or(
-            CodegenError::MissingChild(
-                node.tag_name().name().to_string(),
-                child_tag.to_string(),
-            ),
-        )?,
-    )
+fn first_child_by_tag<'a, 'b>(
+    node: &'a roxmltree::Node<'b, 'b>,
+    child_tag: &'a str,
+) -> Result<roxmltree::Node<'b, 'b>, CodegenError> {
+    Ok(node
+        .children()
+        .find(|child| child.tag_name().name() == child_tag)
+        .ok_or_else(|| {
+            CodegenError::MissingChild(node.tag_name().name().to_owned(), child_tag.to_owned())
+        })?)
 }
 
-fn type_node_to_rust_typedecl(type_node: &roxmltree::Node) -> Result<proc_macro2::TokenStream, CodegenError> {
+fn node_text<'a>(node: &'a roxmltree::Node) -> Result<&'a str, CodegenError> {
+    node.text()
+        .ok_or_else(|| CodegenError::NoText(node.tag_name().name().to_owned()))
+}
+
+fn type_node_to_rust_typedecl(
+    type_node: &roxmltree::Node,
+) -> Result<proc_macro2::TokenStream, CodegenError> {
     match type_node.tag_name().name() {
-        "Boolean" => Ok(quote!{bool}),
-        "U8" => Ok(quote!{u8}),
-        "U16" => Ok(quote!{u16}),
-        "U32" => Ok(quote!{u32}),
-        "U64" => Ok(quote!{u64}),
-        "I8" => Ok(quote!{i8}),
-        "I16" => Ok(quote!{i16}),
-        "I32" => Ok(quote!{i32}),
-        "I64" => Ok(quote!{i64}),
-        "SGL" => Ok(quote!{f32}),
-        "DBL" => Ok(quote!{f64}),
+        "Boolean" => Ok(quote! {bool}),
+        "U8" => Ok(quote! {u8}),
+        "U16" => Ok(quote! {u16}),
+        "U32" => Ok(quote! {u32}),
+        "U64" => Ok(quote! {u64}),
+        "I8" => Ok(quote! {i8}),
+        "I16" => Ok(quote! {i16}),
+        "I32" => Ok(quote! {i32}),
+        "I64" => Ok(quote! {i64}),
+        "SGL" => Ok(quote! {f32}),
+        "DBL" => Ok(quote! {f64}),
         "Array" => {
             let size = syn::LitInt::new(
-                first_child_by_tag(type_node, "Size")?.text().ok_or(
-                    CodegenError::NoText,
-                )?,
+                node_text(&first_child_by_tag(type_node, "Size")?)?,
                 proc_macro2::Span::call_site(),
             );
-            let inner_type_node = first_child_by_tag(type_node, "Type")?.first_element_child().ok_or(
-                CodegenError::MissingChild("Type".to_string(), "*any*".to_string()),
-            )?;
+            let inner_type_node = first_child_by_tag(type_node, "Type")?
+                .first_element_child()
+                .ok_or_else(|| CodegenError::NoChildren("Type".to_owned()))?;
             let inner_typedecl = type_node_to_rust_typedecl(&inner_type_node)?;
-            Ok(
-                quote!{
-                    [#inner_typedecl; #size]
-                },
-            )
-        },
+            Ok(quote! {
+                [#inner_typedecl; #size]
+            })
+        }
         "Cluster" | "EnumU8" | "EnumU16" | "EnumU32" | "EnumU64" => {
             let ident = syn::Ident::new(
-                &sanitize_ident(first_child_by_tag(type_node, "Name")?.text().ok_or(
-                    CodegenError::NoText,
-                )?),
+                &sanitize_ident(node_text(&first_child_by_tag(type_node, "Name")?)?),
                 proc_macro2::Span::call_site(),
             );
-            Ok(
-                quote!{
-                    types::#ident
-                },
-            )
-        },
+            Ok(quote! {
+                types::#ident
+            })
+        }
         "FXP" => {
-            let signed = syn::LitBool{
-                value: first_child_by_tag(type_node, "Signed")?.text().ok_or(
-                    CodegenError::NoText,
-                )? == "true",
+            let signed = syn::LitBool {
+                value: node_text(&first_child_by_tag(type_node, "Signed")?)? == "true",
                 span: proc_macro2::Span::call_site(),
             };
             let word_length = syn::LitInt::new(
-                first_child_by_tag(type_node, "WordLength")?.text().ok_or(
-                    CodegenError::NoText,
-                )?,
+                node_text(&first_child_by_tag(type_node, "WordLength")?)?,
                 proc_macro2::Span::call_site(),
             );
             let integer_word_length = syn::LitInt::new(
-                first_child_by_tag(type_node, "IntegerWordLength")?.text().ok_or(
-                    CodegenError::NoText,
-                )?,
+                node_text(&first_child_by_tag(type_node, "IntegerWordLength")?)?,
                 proc_macro2::Span::call_site(),
             );
-            Ok(
-                quote!{
-                    ni_fpga::fxp::FXP<#word_length, #integer_word_length, #signed>
-                },
-            )
-        },
-        _ => Err(CodegenError::UnknownBitfileType(type_node.tag_name().name().to_string())),
+            Ok(quote! {
+                ni_fpga::fxp::FXP<#word_length, #integer_word_length, #signed>
+            })
+        }
+        _ => Err(CodegenError::UnknownBitfileType(
+            type_node.tag_name().name().to_owned(),
+        )),
     }
 }
 
@@ -153,145 +147,113 @@ pub fn codegen(bitfile_path: String) -> Result<proc_macro2::TokenStream, Codegen
     let mut register_defs = Vec::<proc_macro2::TokenStream>::new();
     let mut register_fields = Vec::<proc_macro2::TokenStream>::new();
     let mut register_inits = Vec::<proc_macro2::TokenStream>::new();
-    let mut vi_signature = "";
+    let mut vi_signature = String::new();
+
     for node in bitfile.root().descendants() {
         match node.tag_name().name() {
             "Cluster" => {
                 let ident = syn::Ident::new(
-                    &sanitize_ident(first_child_by_tag(&node, "Name")?.text().ok_or(
-                        CodegenError::NoText,
-                    )?),
+                    &sanitize_ident(node_text(&first_child_by_tag(&node, "Name")?)?),
                     proc_macro2::Span::call_site(),
                 );
                 let mut fields = Vec::<proc_macro2::TokenStream>::new();
                 let type_list_node = first_child_by_tag(&node, "TypeList")?;
                 for field_node in type_list_node.children().filter(|child| child.is_element()) {
                     let field_name = syn::Ident::new(
-                        first_child_by_tag(&field_node, "Name")?.text().ok_or(
-                            CodegenError::NoText,
-                        )?,
+                        node_text(&first_child_by_tag(&field_node, "Name")?)?,
                         proc_macro2::Span::call_site(),
                     );
                     let field_typedecl = type_node_to_rust_typedecl(&field_node)?;
-                    fields.push(
-                        quote!{
-                            pub #field_name: #field_typedecl
-                        },
-                    );
+                    fields.push(quote! {
+                        pub #field_name: #field_typedecl
+                    });
                 }
-                typedefs.insert(
-                    HashableTokenStream(
-                        quote!{
-                            #[derive(Cluster, Debug)]
-                            pub struct #ident {
-                                #(#fields),*
-                            }
-                        },
-                    ),
-                );
-            },
+                typedefs.insert(HashableTokenStream(quote! {
+                    #[derive(Cluster, Debug)]
+                    pub struct #ident {
+                        #(#fields),*
+                    }
+                }));
+            }
             _name if _name.starts_with("Enum") => {
                 let ident = syn::Ident::new(
-                    &sanitize_ident(first_child_by_tag(&node, "Name")?.text().ok_or(
-                        CodegenError::NoText,
-                    )?),
+                    &sanitize_ident(node_text(&first_child_by_tag(&node, "Name")?)?),
                     proc_macro2::Span::call_site(),
                 );
                 let mut variants = Vec::<proc_macro2::TokenStream>::new();
                 let string_list_node = first_child_by_tag(&node, "StringList")?;
-                for variant_node in string_list_node.children().filter(|child| child.is_element()) {
+                for variant_node in string_list_node
+                    .children()
+                    .filter(|child| child.is_element())
+                {
                     let variant_ident = syn::Ident::new(
-                        &sanitize_ident(variant_node.text().ok_or(
-                            CodegenError::NoText,
-                        )?),
+                        &sanitize_ident(node_text(&variant_node)?),
                         proc_macro2::Span::call_site(),
                     );
-                    variants.push(
-                        quote!{
-                            #variant_ident
-                        },
-                    );
+                    variants.push(quote! {
+                        #variant_ident
+                    });
                 }
-                typedefs.insert(
-                    HashableTokenStream(
-                        quote!{
-                            #[derive(Debug, Enum)]
-                            pub enum #ident {
-                                #(#variants),*
-                            }
-                        },
-                    ),
-                );
-            },
+                typedefs.insert(HashableTokenStream(quote! {
+                    #[derive(Debug, Enum)]
+                    pub enum #ident {
+                        #(#variants),*
+                    }
+                }));
+            }
             "Register" => {
-                if first_child_by_tag(&node, "Hidden")?.text().ok_or(
-                    CodegenError::NoText,
-                )? == "false" {
+                if node_text(&first_child_by_tag(&node, "Hidden")?)? == "false" {
                     let ident = syn::Ident::new(
-                        &sanitize_ident(first_child_by_tag(&node, "Name")?.text().ok_or(
-                            CodegenError::NoText,
-                        )?),
+                        &sanitize_ident(node_text(&first_child_by_tag(&node, "Name")?)?),
                         proc_macro2::Span::call_site(),
                     );
                     let offset = syn::LitInt::new(
-                        &sanitize_ident(first_child_by_tag(&node, "Offset")?.text().ok_or(
-                            CodegenError::NoText,
-                        )?),
+                        &sanitize_ident(node_text(&first_child_by_tag(&node, "Offset")?)?),
                         proc_macro2::Span::call_site(),
                     );
-                    let type_node = first_child_by_tag(&node, "Datatype")?.first_element_child().ok_or(
-                        CodegenError::MissingChild("Datatype".to_string(), "*any*".to_string()),
-                    )?;
+                    let type_node = first_child_by_tag(&node, "Datatype")?
+                        .first_element_child()
+                        .ok_or_else(|| CodegenError::NoChildren("Datatype".to_owned()))?;
                     let typedecl = type_node_to_rust_typedecl(&type_node)?;
-                    let write_fn = match first_child_by_tag(&node, "Indicator")?.text().ok_or(
-                        CodegenError::NoText,
-                    )? {
-                        "false" => quote!{
+                    let write_fn = match node_text(&first_child_by_tag(&node, "Indicator")?)? {
+                        "false" => quote! {
                             pub fn write(&self, value: &#typedecl) -> Result<(), ni_fpga::Error> {
                                 unsafe { SESSION.as_ref() }.unwrap().write(#offset, value)
                             }
                         },
-                        _ => quote!{},
+                        _ => quote! {},
                     };
-                    register_defs.push(
-                        quote!{
-                            pub struct #ident {
-                                _marker: PhantomData<*const ()>,
-                            }
+                    register_defs.push(quote! {
+                        pub struct #ident {
+                            _marker: PhantomData<*const ()>,
+                        }
 
-                            impl #ident {
-                                pub fn read(&self) -> Result<#typedecl, ni_fpga::Error> {
-                                    unsafe { SESSION.as_ref() }.unwrap().read(#offset)
-                                }
-                                #write_fn
+                        impl #ident {
+                            pub fn read(&self) -> Result<#typedecl, ni_fpga::Error> {
+                                unsafe { SESSION.as_ref() }.unwrap().read(#offset)
                             }
-                        },
-                    );
-                    register_fields.push(
-                        quote!{
-                            pub #ident: #ident
-                        },
-                    );
-                    register_inits.push(
-                        quote!{
-                            #ident: #ident{ _marker: PhantomData }
-                        },
-                    );
+                            #write_fn
+                        }
+                    });
+                    register_fields.push(quote! {
+                        pub #ident: #ident
+                    });
+                    register_inits.push(quote! {
+                        #ident: #ident{ _marker: PhantomData }
+                    });
                 }
-            },
+            }
             "SignatureRegister" => {
-                vi_signature = node.text().ok_or(
-                    CodegenError::NoText,
-                )?;
-            },
-            _ => {},
+                vi_signature = node_text(&node)?.to_owned();
+            }
+            _ => {}
         }
     }
 
     let mut typedefs_sorted = typedefs.iter().collect::<Vec<_>>();
     typedefs_sorted.sort();
 
-    Ok(quote!{
+    Ok(quote! {
         use std::marker::PhantomData;
 
         #[no_mangle]
@@ -311,9 +273,9 @@ pub fn codegen(bitfile_path: String) -> Result<proc_macro2::TokenStream, Codegen
         }
 
         impl Registers {
-            pub fn take(resource: &str) -> Result<Option<Self>, ni_fpga::Error> {
+            pub fn take(resource: &str) -> Result<Self, Box<dyn std::error::Error>> {
                 if unsafe{ !SESSION.is_null() } {
-                    Ok(None)
+                    Err("Registers already in use")?
                 } else {
                     let session = ni_fpga::Session::open(
                         #bitfile_path,
@@ -323,12 +285,10 @@ pub fn codegen(bitfile_path: String) -> Result<proc_macro2::TokenStream, Codegen
                     unsafe { SESSION = &session as *const ni_fpga::Session; }
                     std::mem::forget(session);
                     Ok(
-                        Some(
-                            Self{
-                                _marker: PhantomData,
-                                #(#register_inits),*
-                            },
-                        ),
+                        Self{
+                            _marker: PhantomData,
+                            #(#register_inits),*
+                        },
                     )
                 }
             }
