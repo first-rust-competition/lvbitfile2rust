@@ -31,7 +31,7 @@ mod rio {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Turn PWM on if the RSL is on!
-    // My scope tells me the RSL blinks at 5Hz in teleop mode!
+    // My scope tells me the RSL blinks at 2.5Hz in teleop mode!
     let peripherals = rio::Peripherals::take("RIO0")?;
     loop {
         let leds = peripherals.LEDs.read()?;
