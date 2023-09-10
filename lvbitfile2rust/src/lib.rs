@@ -133,7 +133,10 @@ fn type_node_to_rust_typedecl(
     }
 }
 
-pub fn codegen(bitfile_path: String) -> Result<proc_macro2::TokenStream, CodegenError> {
+pub fn codegen(
+    bitfile_path: String,
+    embed_bitfile: bool,
+) -> Result<proc_macro2::TokenStream, CodegenError> {
     let bitfile_contents = match std::fs::read_to_string(&bitfile_path) {
         Ok(contents) => contents,
         Err(e) => return Err(CodegenError::BitfileRead(bitfile_path, e)),
@@ -141,6 +144,11 @@ pub fn codegen(bitfile_path: String) -> Result<proc_macro2::TokenStream, Codegen
     let bitfile = match roxmltree::Document::parse(&bitfile_contents) {
         Ok(doc) => doc,
         Err(e) => return Err(CodegenError::BitfileParse(bitfile_path, e)),
+    };
+    let bitfile_literal = if embed_bitfile {
+        Some(syn::LitStr::new(&bitfile_contents, proc_macro2::Span::call_site()))
+    } else {
+        None
     };
 
     let mut typedefs = std::collections::HashSet::<HashableTokenStream>::new();
@@ -215,31 +223,36 @@ pub fn codegen(bitfile_path: String) -> Result<proc_macro2::TokenStream, Codegen
                         .first_element_child()
                         .ok_or_else(|| CodegenError::NoChildren("Datatype".to_owned()))?;
                     let typedecl = type_node_to_rust_typedecl(&type_node)?;
-                    let write_fn = match node_text(&first_child_by_tag(&node, "Indicator")?)? {
-                        "false" => quote! {
-                            pub fn write(&self, value: &#typedecl) -> Result<(), ni_fpga::Error> {
-                                unsafe { SESSION.as_ref() }.unwrap().write(#offset, value)
-                            }
-                        },
-                        _ => quote! {},
+                    let readable = true;
+                    let writeable = match node_text(&first_child_by_tag(&node, "Indicator")?)? {
+                        "false" => true,
+                        "true" => false,
+                        _ => todo!(),
                     };
-                    register_defs.push(quote! {
-                        pub struct #ident {
-                            _marker: PhantomData<*const ()>,
-                        }
 
-                        impl #ident {
-                            pub fn read(&self) -> Result<#typedecl, ni_fpga::Error> {
-                                unsafe { SESSION.as_ref() }.unwrap().read(#offset)
-                            }
-                            #write_fn
+                    let access_type = if readable {
+                        if writeable {
+                            "ReadWrite"
+                        } else {
+                            "ReadOnly"
                         }
+                    } else if writeable {
+                        "WriteOnly"
+                    } else {
+                        // Error
+                        todo!();
+                    };
+
+                    let access = syn::Ident::new(access_type, proc_macro2::Span::call_site());
+
+                    register_defs.push(quote! {
+                        pub #ident: Option<ni_fpga::Register<#typedecl, ni_fpga::#access, ni_fpga::ConstOffset<#offset>>>
+                    });
+                    register_inits.push(quote! {
+                        #ident: Some(unsafe { ni_fpga::Register::new_const() })
                     });
                     register_fields.push(quote! {
                         pub #ident: #ident
-                    });
-                    register_inits.push(quote! {
-                        #ident: #ident{ _marker: PhantomData }
                     });
                 }
             }
@@ -256,47 +269,35 @@ pub fn codegen(bitfile_path: String) -> Result<proc_macro2::TokenStream, Codegen
     Ok(quote! {
         use std::marker::PhantomData;
 
-        #[no_mangle]
-        static mut SESSION: *const ni_fpga::Session = std::ptr::null();
-
         mod types {
             use ni_fpga_macros::{Cluster, Enum};
             use super::types;
             #(#typedefs_sorted)*
         }
 
-        #(#register_defs)*
-
-        pub struct Peripherals {
-            _marker: PhantomData<*const ()>,
-            #(#register_fields),*
+        pub struct FpgaBitfile {
+            #(#register_defs),*
         }
 
-        impl Peripherals {
-            pub fn take(resource: &str) -> Result<Self, Box<dyn std::error::Error>> {
-                if unsafe{ !SESSION.is_null() } {
-                    Err("Peripherals already in use")?
-                } else {
-                    let session = ni_fpga::Session::open(
-                        #bitfile_path,
-                        #vi_signature,
-                        resource,
-                    )?;
-                    unsafe { SESSION = &session as *const ni_fpga::Session; }
-                    std::mem::forget(session);
-                    Ok(
-                        Self{
-                            _marker: PhantomData,
-                            #(#register_inits),*
-                        },
-                    )
-                }
+        impl FpgaBitfile {
+            pub fn take() -> Option<Self> {
+                static REGISTERS: std::sync::Mutex<Option<FpgaBitfile>> = std::sync::Mutex::new(Some(FpgaBitfile {
+                    #(#register_inits),*
+                    }));
+                let mut lock = REGISTERS.lock().unwrap();
+                lock.take()
             }
-        }
 
-        impl Drop for Peripherals {
-            fn drop(&mut self) {
-                std::mem::drop(unsafe { SESSION.as_ref() }.unwrap())
+            pub const fn contents() -> &'static str {
+                #bitfile_literal
+            }
+
+            pub const fn signature() -> &'static str {
+                #vi_signature
+            }
+
+            pub fn session_builder(resource: impl AsRef<str>) -> Result<ni_fpga::SessionBuilder, ni_fpga::Error> {
+                ni_fpga::SessionBuilder::new().bitfile_contents(Self::contents())?.signature(Self::signature())?.resource(resource)
             }
         }
     })

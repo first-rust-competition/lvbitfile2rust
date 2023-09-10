@@ -1,6 +1,6 @@
 [package]
 name = "lvbitfile2rust-macros"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Connor Worley <cworley@dropbox.com>"]
 edition = "2018"
 license-file = "LICENSE.md"
@@ -12,6 +12,6 @@ repository = "https://github.com/first-rust-competition/lvbitfile2rust"
 proc-macro = true
 
 [dependencies]
-lvbitfile2rust = { version = "0.1.0", path = "../lvbitfile2rust" }
+lvbitfile2rust = { version = "0.2.0", path = "../lvbitfile2rust" }
 quote = "1.0.7"
 syn = "1.0.23"

@@ -1,6 +1,6 @@
 [package]
 name = "lvbitfile2rust"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Connor Worley <cworley@dropbox.com>"]
 edition = "2018"
 license-file = "LICENSE.md"

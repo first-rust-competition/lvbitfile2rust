@@ -1,6 +1,5 @@
 [workspace]
 members = [
-    "example",
     "lvbitfile2rust",
     "lvbitfile2rust-cli",
     "lvbitfile2rust-macros",
