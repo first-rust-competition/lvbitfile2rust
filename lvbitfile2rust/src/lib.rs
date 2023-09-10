@@ -53,24 +53,38 @@ impl ToTokens for HashableTokenStream {
 }
 
 fn sanitize_ident(ident: &str) -> String {
-    ident.replace(".", "_").replace(" ", "_")
+    ident.replace(['.', ' '], "_")
 }
 
 fn first_child_by_tag<'a, 'b>(
     node: &'a roxmltree::Node<'b, 'b>,
     child_tag: &'a str,
 ) -> Result<roxmltree::Node<'b, 'b>, CodegenError> {
-    Ok(node
+    node
         .children()
         .find(|child| child.tag_name().name() == child_tag)
         .ok_or_else(|| {
             CodegenError::MissingChild(node.tag_name().name().to_owned(), child_tag.to_owned())
-        })?)
+        })
 }
 
 fn node_text<'a>(node: &'a roxmltree::Node) -> Result<&'a str, CodegenError> {
     node.text()
         .ok_or_else(|| CodegenError::NoText(node.tag_name().name().to_owned()))
+}
+
+pub fn find_cluster_name(type_node: &roxmltree::Node) -> Result<String, CodegenError> {
+    Ok(match node_text(&first_child_by_tag(type_node, "Name")?) {
+        Ok(name) => name.into(),
+        Err(_) => {
+            // Navigate up 2 parents, see if we find an Array
+            let parent_block = type_node
+                .parent()
+                .and_then(|f| f.parent())
+                .ok_or_else(|| CodegenError::NoText(type_node.tag_name().name().to_owned()))?;
+            node_text(&first_child_by_tag(&parent_block, "Name")?)?.into()
+        }
+    })
 }
 
 fn type_node_to_rust_typedecl(
@@ -96,12 +110,22 @@ fn type_node_to_rust_typedecl(
             let inner_type_node = first_child_by_tag(type_node, "Type")?
                 .first_element_child()
                 .ok_or_else(|| CodegenError::NoChildren("Type".to_owned()))?;
+
             let inner_typedecl = type_node_to_rust_typedecl(&inner_type_node)?;
             Ok(quote! {
                 [#inner_typedecl; #size]
             })
         }
-        "Cluster" | "EnumU8" | "EnumU16" | "EnumU32" | "EnumU64" => {
+        "Cluster" => {
+            let ident = syn::Ident::new(
+                &sanitize_ident(&find_cluster_name(type_node)?),
+                proc_macro2::Span::call_site(),
+            );
+            Ok(quote! {
+                types::#ident
+            })
+        }
+        "EnumU8" | "EnumU16" | "EnumU32" | "EnumU64" => {
             let ident = syn::Ident::new(
                 &sanitize_ident(node_text(&first_child_by_tag(type_node, "Name")?)?),
                 proc_macro2::Span::call_site(),
@@ -146,7 +170,10 @@ pub fn codegen(
         Err(e) => return Err(CodegenError::BitfileParse(bitfile_path, e)),
     };
     let bitfile_literal = if embed_bitfile {
-        Some(syn::LitStr::new(&bitfile_contents, proc_macro2::Span::call_site()))
+        Some(syn::LitStr::new(
+            &bitfile_contents,
+            proc_macro2::Span::call_site(),
+        ))
     } else {
         None
     };
@@ -161,7 +188,7 @@ pub fn codegen(
         match node.tag_name().name() {
             "Cluster" => {
                 let ident = syn::Ident::new(
-                    &sanitize_ident(node_text(&first_child_by_tag(&node, "Name")?)?),
+                    &sanitize_ident(&find_cluster_name(&node)?),
                     proc_macro2::Span::call_site(),
                 );
                 let mut fields = Vec::<proc_macro2::TokenStream>::new();
@@ -267,8 +294,6 @@ pub fn codegen(
     typedefs_sorted.sort();
 
     Ok(quote! {
-        use std::marker::PhantomData;
-
         mod types {
             use ni_fpga_macros::{Cluster, Enum};
             use super::types;
