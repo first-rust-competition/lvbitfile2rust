@@ -242,10 +242,14 @@ pub fn codegen(
                         &sanitize_ident(node_text(&first_child_by_tag(&node, "Name")?)?),
                         proc_macro2::Span::call_site(),
                     );
-                    let offset = syn::LitInt::new(
-                        &sanitize_ident(node_text(&first_child_by_tag(&node, "Offset")?)?),
+                    let str_ident = syn::LitStr::new(
+                        &sanitize_ident(node_text(&first_child_by_tag(&node, "Name")?)?),
                         proc_macro2::Span::call_site(),
                     );
+                    // let offset = syn::LitInt::new(
+                    //     &sanitize_ident(node_text(&first_child_by_tag(&node, "Offset")?)?),
+                    //     proc_macro2::Span::call_site(),
+                    // );
                     let type_node = first_child_by_tag(&node, "Datatype")?
                         .first_element_child()
                         .ok_or_else(|| CodegenError::NoChildren("Datatype".to_owned()))?;
@@ -273,10 +277,10 @@ pub fn codegen(
                     let access = syn::Ident::new(access_type, proc_macro2::Span::call_site());
 
                     register_defs.push(quote! {
-                        pub #ident: Option<ni_fpga::Register<#typedecl, ni_fpga::#access, ni_fpga::ConstOffset<#offset>>>
+                        pub #ident: Option<ni_fpga::Register<#typedecl, ni_fpga::#access, ni_fpga::StoredOffset>>
                     });
                     register_inits.push(quote! {
-                        #ident: Some(unsafe { ni_fpga::Register::new_const() })
+                        #ident: Some(unsafe { ni_fpga::Register::new(session.find_offset(#str_ident)?) })
                     });
                     register_fields.push(quote! {
                         pub #ident: #ident
@@ -305,12 +309,19 @@ pub fn codegen(
         }
 
         impl FpgaBitfile {
-            pub fn take() -> Option<Self> {
-                static REGISTERS: std::sync::Mutex<Option<FpgaBitfile>> = std::sync::Mutex::new(Some(FpgaBitfile {
-                    #(#register_inits),*
-                    }));
+            pub fn take(session: &impl ni_fpga::SessionAccess) -> Result<Self, ni_fpga::Error> {
+                static REGISTERS: std::sync::Mutex<Option<()>> = std::sync::Mutex::new(Some(()));
                 let mut lock = REGISTERS.lock().unwrap();
-                lock.take()
+                let contents = lock.take();
+                drop(lock);
+
+                if contents.is_none() {
+                    return Err(ni_fpga::Error::ResourceAlreadyTaken);
+                }
+
+                Ok(Self {
+                #(#register_inits),*
+                })
             }
 
             pub const fn contents() -> &'static str {
