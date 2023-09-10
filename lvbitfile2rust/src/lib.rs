@@ -179,8 +179,9 @@ pub fn codegen(
 
     let mut typedefs = std::collections::HashSet::<HashableTokenStream>::new();
     let mut register_defs = Vec::<proc_macro2::TokenStream>::new();
-    let mut register_fields = Vec::<proc_macro2::TokenStream>::new();
+    let mut hmb_fields = Vec::<proc_macro2::TokenStream>::new();
     let mut register_inits = Vec::<proc_macro2::TokenStream>::new();
+    let mut hmb_inits = Vec::<proc_macro2::TokenStream>::new();
     let mut vi_signature = String::new();
 
     for node in bitfile.root().descendants() {
@@ -279,13 +280,40 @@ pub fn codegen(
                     register_inits.push(quote! {
                         #ident: Some(unsafe { ni_fpga::Register::new(session.find_offset(#str_ident)?) })
                     });
-                    register_fields.push(quote! {
-                        pub #ident: #ident
-                    });
                 }
             }
             "SignatureRegister" => {
                 vi_signature = node_text(&node)?.to_owned();
+            }
+            "HMB" => {
+                let blocks = first_child_by_tag(&node, "MemoryBlockList")?;
+                for block in blocks
+                    .children()
+                    .filter(|child| child.is_element() && child.tag_name().name() == "MemoryBlock")
+                {
+                    let ident = syn::Ident::new(
+                        &sanitize_ident(node_text(&first_child_by_tag(&block, "Name")?)?),
+                        proc_macro2::Span::call_site(),
+                    );
+                    let ident_raw = syn::LitStr::new(
+                        node_text(&first_child_by_tag(&block, "Name")?)?,
+                        proc_macro2::Span::call_site(),
+                    );
+                    let stride = syn::LitInt::new(
+                        &sanitize_ident(node_text(&first_child_by_tag(&block, "Stride")?)?),
+                        proc_macro2::Span::call_site(),
+                    );
+                    let elements = syn::LitInt::new(
+                        &sanitize_ident(node_text(&first_child_by_tag(&block, "Elements")?)?),
+                        proc_macro2::Span::call_site(),
+                    );
+                    hmb_fields.push(quote! {
+                        pub #ident: ni_fpga::HmbDefinition
+                    });
+                    hmb_inits.push(quote! {
+                        #ident: ni_fpga::HmbDefinition { name: #ident_raw, stride: #stride, elements: #elements }
+                    });
+                }
             }
             _ => {}
         }
@@ -301,8 +329,13 @@ pub fn codegen(
             #(#typedefs_sorted)*
         }
 
+        pub struct FpgaBitfileHmbDefs {
+            #(#hmb_fields),*
+        }
+
         pub struct FpgaBitfile {
-            #(#register_defs),*
+            #(#register_defs),*,
+            hmb_definitions: FpgaBitfileHmbDefs,
         }
 
         impl FpgaBitfile {
@@ -317,7 +350,11 @@ pub fn codegen(
                 }
 
                 Ok(Self {
-                #(#register_inits),*
+                #(#register_inits),*,
+
+                hmb_definitions: FpgaBitfileHmbDefs {
+                    #(#hmb_inits),*
+                }
                 })
             }
 
