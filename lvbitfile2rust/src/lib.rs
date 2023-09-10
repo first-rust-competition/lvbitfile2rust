@@ -60,8 +60,7 @@ fn first_child_by_tag<'a, 'b>(
     node: &'a roxmltree::Node<'b, 'b>,
     child_tag: &'a str,
 ) -> Result<roxmltree::Node<'b, 'b>, CodegenError> {
-    node
-        .children()
+    node.children()
         .find(|child| child.tag_name().name() == child_tag)
         .ok_or_else(|| {
             CodegenError::MissingChild(node.tag_name().name().to_owned(), child_tag.to_owned())
@@ -237,19 +236,17 @@ pub fn codegen(
                 }));
             }
             "Register" => {
-                if node_text(&first_child_by_tag(&node, "Hidden")?)? == "false" {
+                if node_text(&first_child_by_tag(&node, "Hidden")?)? == "false"
+                    && node_text(&first_child_by_tag(&node, "Internal")?)? == "false"
+                {
                     let ident = syn::Ident::new(
                         &sanitize_ident(node_text(&first_child_by_tag(&node, "Name")?)?),
                         proc_macro2::Span::call_site(),
                     );
                     let str_ident = syn::LitStr::new(
-                        &sanitize_ident(node_text(&first_child_by_tag(&node, "Name")?)?),
+                        node_text(&first_child_by_tag(&node, "Name")?)?,
                         proc_macro2::Span::call_site(),
                     );
-                    // let offset = syn::LitInt::new(
-                    //     &sanitize_ident(node_text(&first_child_by_tag(&node, "Offset")?)?),
-                    //     proc_macro2::Span::call_site(),
-                    // );
                     let type_node = first_child_by_tag(&node, "Datatype")?
                         .first_element_child()
                         .ok_or_else(|| CodegenError::NoChildren("Datatype".to_owned()))?;
