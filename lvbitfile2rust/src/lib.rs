@@ -146,8 +146,14 @@ fn type_node_to_rust_typedecl(
                 node_text(&first_child_by_tag(type_node, "IntegerWordLength")?)?,
                 proc_macro2::Span::call_site(),
             );
+            let include_overflow = syn::LitBool {
+                value: node_text(&first_child_by_tag(type_node, "IncludeOverflowStatus")?)?
+                    == "true",
+                span: proc_macro2::Span::call_site(),
+            };
+
             Ok(quote! {
-                ni_fpga::fxp::FXP<#word_length, #integer_word_length, #signed>
+                ni_fpga::fxp::FXP<#word_length, #integer_word_length, #signed, #include_overflow>
             })
         }
         _ => Err(CodegenError::UnknownBitfileType(
